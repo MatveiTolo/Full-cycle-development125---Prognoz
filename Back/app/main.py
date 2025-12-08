@@ -1,4 +1,3 @@
-# Back/app/main.py - МИНИМАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -6,6 +5,7 @@ import sys
 import os
 import datetime as dt
 import uvicorn
+import random
 
 print("=" * 50)
 print("🚀 STARTING FORECAST API SERVER")
@@ -42,23 +42,37 @@ except ImportError as e:
     ML_AVAILABLE = False
     forecast_ticker = None
 
+# ===== СОЗДАЁМ APP ОДИН РАЗ =====
 app = FastAPI(title="Forecast API", version="1.0.0")
 
-# CORS
+# ===== CORS ОДИН РАЗ =====
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Можешь указать ["http://localhost:5173"] для безопасности
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ===== ПОДКЛЮЧАЕМ АВТОРИЗАЦИЮ =====
+try:
+    # Пробуем импортировать auth
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from .api.auth import router as auth_router
+    app.include_router(auth_router, prefix="/api")
+    print("✅ Auth module imported successfully!")
+except ImportError as e:
+    print(f"⚠️ Auth import error: {e}")
+    print("⚠️ Running without authentication endpoints")
+
+# ===== СУЩЕСТВУЮЩИЕ ЭНДПОИНТЫ =====
 @app.get("/")
 def root():
     return {
         "message": "Forecast API",
         "ml_available": ML_AVAILABLE,
-        "endpoints": ["/", "/health", "/api/tickers", "/api/forecast"]
+        "auth_available": "auth_router" in locals(),
+        "endpoints": ["/", "/health", "/api/tickers", "/api/forecast", "/api/auth/login", "/api/auth/register"]
     }
 
 @app.get("/health")
@@ -78,9 +92,6 @@ class ForecastRequest(BaseModel):
 @app.post("/api/forecast")
 async def forecast(request: ForecastRequest):
     if not ML_AVAILABLE:
-        raise HTTPException(status_code=503, detail="ML module not available")
-    
-    try:
         # Имитация прогноза для теста
         import random
         return {
@@ -96,9 +107,15 @@ async def forecast(request: ForecastRequest):
             },
             "mode": "test"
         }
+    
+    # Если ML доступен, используем реальную модель
+    try:
+        result = forecast_ticker(request.ticker, request.horizon)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ===== ЗАПУСК СЕРВЕРА =====
 if __name__ == "__main__":
     print(f"🌐 Server will run on: http://localhost:8000")
     print(f"📊 ML available: {ML_AVAILABLE}")
